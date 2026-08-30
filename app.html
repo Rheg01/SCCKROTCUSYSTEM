@@ -1057,14 +1057,28 @@ function filterAttendance() {
   }
 
   async function apiCall(action, payload, onSuccess, onFailure) {
+    
     // 1. INTERCEPT DASHBOARD AND QUERY POSTGRES DIRECTLY
     if (action === 'getAdminDashboardData') {
         try {
             // Fetch directly from the new Supabase tables
-            const [{ data: cadets }, { data: profiles }] = await Promise.all([
+            const [cadetsResponse, profilesResponse] = await Promise.all([
                 supabaseClient.from('cadets').select('*'),
                 supabaseClient.from('profiles').select('*')
             ]);
+
+            // EXPOSE RLS ERRORS IN THE CONSOLE
+            if (cadetsResponse.error) {
+                console.error("CADETS RLS ERROR:", cadetsResponse.error);
+                throw new Error("Database blocked access to Cadets: " + cadetsResponse.error.message);
+            }
+            if (profilesResponse.error) {
+                console.error("PROFILES RLS ERROR:", profilesResponse.error);
+                throw new Error("Database blocked access to Profiles: " + profilesResponse.error.message);
+            }
+
+            const cadets = cadetsResponse.data;
+            const profiles = profilesResponse.data;
 
             // Map Postgres data to the old Google Sheets JSON format
             let rawMasterlist = (cadets || []).map(c => ({
@@ -1076,7 +1090,7 @@ function filterAttendance() {
             }));
 
             // Map Profiles to the old Accounts format
-            let accountsList = [["Header", "Header", "Header", "Header", "Header"]]; // Dummy header row
+            let accountsList = [["Header", "Header", "Header", "Header", "Header"]]; 
             (profiles || []).forEach(p => {
                 accountsList.push([p.username, "HIDDEN_BY_SUPABASE", p.role, p.status, p.legacy_clearance]);
             });
@@ -1089,7 +1103,7 @@ function filterAttendance() {
                 activeDay: today,
                 stats: { total: rawMasterlist.length, present: 0, late: 0, absent: rawMasterlist.length },
                 masterlist: rawMasterlist,
-                attendance: [], // We will wire real-time attendance next
+                attendance: [], 
                 accounts: accountsList,
                 alerts: { leaves: 0, posts: 0, legacy: 0 }
             });
@@ -1097,7 +1111,7 @@ function filterAttendance() {
             console.error("Supabase Query Error:", error);
             if (onFailure) onFailure(error);
         }
-        return; // Stop execution so it doesn't hit Google
+        return; 
     }
 
     // 2. FALLBACK FOR OLD ROUTES (Will be replaced one by one)
